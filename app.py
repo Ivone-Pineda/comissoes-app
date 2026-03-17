@@ -2,33 +2,24 @@ import streamlit as st
 import pandas as pd
 import sqlite3
 
-# ---------------- CONFIG ----------------
-st.set_page_config(page_title="Comissões", layout="wide")
+# ------------------ CONFIG ------------------
+st.set_page_config(page_title="Comissões Consigaz", layout="wide")
 
-# ---------------- ESTILO PREMIUM ----------------
+# ------------------ ESTILO ------------------
 st.markdown("""
 <style>
-body {
-    background-color: #F5F7FA;
-}
-h1, h2, h3 {
-    color: #0A3D62;
-}
 .stButton>button {
     background-color: #0A3D62;
     color: white;
-    border-radius: 10px;
+    border-radius: 8px;
     height: 3em;
     width: 100%;
-}
-.stTextInput>div>div>input {
-    border-radius: 8px;
 }
 </style>
 """, unsafe_allow_html=True)
 
-# ---------------- BANCO ----------------
-conn = sqlite3.connect("comissoes.db", check_same_thread=False)
+# ------------------ BANCO ------------------
+conn = sqlite3.connect("data.db", check_same_thread=False)
 c = conn.cursor()
 
 c.execute("""
@@ -60,46 +51,118 @@ CREATE TABLE IF NOT EXISTS requests (
 
 conn.commit()
 
-# ---------------- USUÁRIOS INICIAIS ----------------
-def seed_users():
-    users = [
-        ("admin","admin123","rh",""),
-        ("gerente_barueri","123","gerente","GERENTE DE BASE - (Barueri)"),
-        ("gerente_maua","123","gerente","GERENTE DE BASE - (Maua)"),
-        ("diretor1","123","diretor","")
-    ]
-    for u in users:
-        c.execute("SELECT * FROM users WHERE username=?", (u[0],))
-        if not c.fetchone():
-            c.execute("INSERT INTO users VALUES (?,?,?,?)", u)
-    conn.commit()
+# ------------------ CENTROS DE CUSTO ------------------
+CENTROS = list(set([
+"COMERCIAL",
+"COMERCIAL - GESTÃO GRANDES CONTAS",
+"COMERCIAL INDUSTRIAL - (Corporativo)",
+"COMERCIAL REVENDA - (Corporativo)",
+"COMERCIAL REVENDAS",
+"GERENTE DE BASE - (Barueri)",
+"GERENTE DE BASE - (Cariacica)",
+"GERENTE DE BASE - (D. de Caxias)",
+"GERENTE DE BASE - (Maua)",
+"GERENTE DE BASE - (Paulinia)",
+"GERENTE DE BASE - (S. J. Campos)",
+"GERENTE DE BASE - (S. Vicente)",
+"GERENTE DE BASE - (Sen. Canedo)",
+"GERENTE DE BASE (ARAUCARIA)",
+"GERENTE DE BASE (ITU)",
+"GERENTE DE BASE (JANDAIA DO SUL)",
+"GERENTE DE BASE (UBERLÂNDIA)",
+"INOVACAO (CORPORATIVO)",
+"LICITACOES (CORPORATIVO)",
+"POS VENDAS - (Corporativo)",
+"POS VENDAS - (Barueri)",
+"POS VENDAS - (Canoas)",
+"POS VENDAS - (Cariacica)",
+"POS VENDAS - (D. de Caxias)",
+"POS VENDAS - (Maua)",
+"POS VENDAS - (Paulinia)",
+"POS VENDAS - (S. J. Campos)",
+"POS VENDAS - (S. Vicente)",
+"POS VENDAS - (Sen. Canedo)",
+"POS VENDAS (ARAUCARIA)",
+"POS VENDAS (BRASÍLIA)",
+"POS VENDAS (RIB. PRETO)",
+"POS VENDAS (UBERLÂNDIA)",
+"REVENDA - (Barueri)",
+"REVENDA - (Canoas)",
+"REVENDA - (Cariacica)",
+"REVENDA - (D. de Caxias)",
+"REVENDA - (Maua)",
+"REVENDA - (Paulinia)",
+"REVENDA - (S. J. Campos)",
+"REVENDA - (S. Vicente)",
+"REVENDA - (Sen. Canedo)",
+"REVENDA (ARAUCARIA)",
+"REVENDA (BRASÍLIA)",
+"REVENDA (RIB. PRETO)",
+"REVENDA (UBERLÂNDIA)",
+"REVENDA GASBOM - (Barueri)",
+"VENDAS - (Barueri)",
+"VENDAS - (Canoas)",
+"VENDAS - (Cariacica)",
+"VENDAS - (D. de Caxias)",
+"VENDAS - (Maua)",
+"VENDAS - (Paulinia)",
+"VENDAS - (Propangas)",
+"VENDAS - (S. J. Campos)",
+"VENDAS - (S. Vicente)",
+"VENDAS - (Sen. Canedo)",
+"VENDAS (ARAUCARIA)",
+"VENDAS (BETIM)",
+"VENDAS (BRASÍLIA)",
+"VENDAS (JANDAIA DO SUL)",
+"VENDAS (RIB. PRETO)",
+"VENDAS (UBERLÂNDIA)"
+]))
 
-seed_users()
-
-# ---------------- LOGIN ----------------
+# ------------------ LOGIN ------------------
 def login():
-    st.image("logo.png", width=180)
-    st.markdown("<h1 style='text-align:center'>Plataforma de Comissões</h1>", unsafe_allow_html=True)
+    st.title("🔐 Login")
 
-    user = st.text_input("Usuário")
-    pwd = st.text_input("Senha", type="password")
+    username = st.text_input("Usuário")
+    password = st.text_input("Senha", type="password")
 
     if st.button("Entrar"):
-        c.execute("SELECT * FROM users WHERE username=? AND password=?", (user,pwd))
-        result = c.fetchone()
-        if result:
+        c.execute("SELECT * FROM users WHERE username=? AND password=?", (username, password))
+        user = c.fetchone()
+
+        if user:
             st.session_state.user = {
-                "username": result[0],
-                "role": result[2],
-                "centro": result[3]
+                "username": user[0],
+                "role": user[2],
+                "centro_custo": user[3]
             }
             st.rerun()
         else:
-            st.error("Login inválido")
+            st.error("Usuário ou senha inválidos")
 
-# ---------------- UPLOAD RH ----------------
-def upload_planilha():
-    file = st.file_uploader("📤 Subir planilha RH", type=["xlsx","csv"])
+# ------------------ RH ------------------
+def tela_rh():
+    st.title("👩‍💼 RH")
+
+    st.subheader("➕ Criar gerente")
+    username = st.text_input("Usuário")
+    password = st.text_input("Senha", type="password")
+    centro = st.selectbox("Centro de Custo", CENTROS)
+
+    if st.button("Criar usuário"):
+        c.execute("SELECT * FROM users WHERE username=?", (username,))
+        if c.fetchone():
+            st.warning("Usuário já existe")
+        else:
+            c.execute("INSERT INTO users VALUES (?,?,?,?)",
+                      (username, password, "gerente", centro))
+            conn.commit()
+            st.success("Criado com sucesso!")
+
+    st.divider()
+
+    st.subheader("📤 Upload Planilha")
+    file = st.file_uploader("Subir Excel")
+
     if file:
         df = pd.read_excel(file)
 
@@ -112,105 +175,72 @@ def upload_planilha():
                 valor_total, status
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
-                row["Empresa"],
-                row["Estab."],
-                row["Localidade"],
-                row["Matrícula"],
-                row["Nome"],
-                row["Admissão"],
-                row["Cargo Básico-Descrição"],
-                row["Centro Custo-Descrição"],
-                0, 0, 0,
-                "Pendente Gerente"
+                row["Empresa"], row["Estab."], row["Localidade"],
+                row["Matrícula"], row["Nome"], row["Admissão"],
+                row["Cargo Básico-Descrição"], row["Centro Custo-Descrição"],
+                0, 0, 0, "Pendente Gerente"
             ))
+
         conn.commit()
-        st.success("Planilha carregada com sucesso!")
+        st.success("Upload realizado!")
 
-# ---------------- TELA RH ----------------
-def tela_rh():
-    st.title("👩‍💼 RH")
-
-    upload_planilha()
+    st.divider()
 
     df = pd.read_sql("SELECT * FROM requests", conn)
+    st.dataframe(df)
 
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Total", len(df))
-    col2.metric("Pendentes", len(df[df['status']=="Pendente Gerente"]))
-    col3.metric("Aprovados", len(df[df['status']=="Aprovado Diretor"]))
+# ------------------ GERENTE ------------------
+def tela_gerente():
+    user = st.session_state.user
 
-# ---------------- TELA GERENTE ----------------
-def tela_gerente(user):
     st.title("👨‍💼 Gerente")
 
-    df = pd.read_sql("SELECT * FROM requests WHERE centro_custo=?", conn, params=(user["centro"],))
+    df = pd.read_sql(
+        f"SELECT * FROM requests WHERE centro_custo = '{user['centro_custo']}'",
+        conn
+    )
 
-    for i, r in df.iterrows():
+    for i, row in df.iterrows():
         with st.container():
-            st.markdown(f"### {r['nome']}")
-            st.write(f"Matrícula: {r['matricula']}")
+            st.markdown(f"### {row['nome']}")
 
-            valor = st.number_input(f"Valor Comissão {i}", value=float(r['valor_comissao']))
-            dsr = st.number_input(f"% DSR {i}", value=float(r['perc_dsr']))
-
-            total = valor + (valor * dsr/100)
+            valor = st.number_input(f"Valor Comissão {i}", key=f"v{i}")
+            dsr = st.number_input(f"% DSR {i}", key=f"d{i}")
 
             if st.button(f"Salvar {i}"):
+                total = valor + (valor * dsr / 100)
+
                 c.execute("""
-                UPDATE requests SET
-                valor_comissao=?,
-                perc_dsr=?,
-                valor_total=?,
-                status='Pendente Diretor'
+                UPDATE requests
+                SET valor_comissao=?, perc_dsr=?, valor_total=?, status='Pendente RH'
                 WHERE id=?
-                """, (valor, dsr, total, r['id']))
+                """, (valor, dsr, total, row["id"]))
+
                 conn.commit()
-                st.success("Atualizado!")
+                st.success("Salvo!")
 
-            st.divider()
-
-# ---------------- TELA DIRETOR ----------------
-def tela_diretor():
-    st.title("👔 Diretor")
-
-    df = pd.read_sql("SELECT * FROM requests WHERE status='Pendente Diretor'", conn)
-
-    for i, r in df.iterrows():
-        st.write(f"{r['nome']} - R$ {r['valor_total']}")
-
-        if st.button(f"Aprovar {i}"):
-            c.execute("UPDATE requests SET status='Aprovado Diretor' WHERE id=?", (r['id'],))
-            conn.commit()
-            st.success("Aprovado")
-
-# ---------------- EXPORTAÇÃO ----------------
-def exportar():
-    st.title("📥 Exportar TOTVS")
-
-    df = pd.read_sql("SELECT empresa, estabelecimento, matricula, valor_total FROM requests WHERE status='Aprovado Diretor'", conn)
-
-    st.download_button("Download CSV", df.to_csv(index=False), "totvs.csv")
-
-# ---------------- MAIN ----------------
+# ------------------ MAIN ------------------
 def main():
+    if "user" in st.session_state and not isinstance(st.session_state.user, dict):
+        del st.session_state.user
+
     if "user" not in st.session_state:
         login()
         return
 
     user = st.session_state.user
 
-    st.sidebar.image("logo.png", width=150)
     st.sidebar.write(f"👤 {user['username']}")
     st.sidebar.write(f"🔐 {user['role']}")
 
+    if st.sidebar.button("🚪 Sair"):
+        st.session_state.clear()
+        st.rerun()
+
     if user["role"] == "rh":
         tela_rh()
-        exportar()
+    else:
+        tela_gerente()
 
-    elif user["role"] == "gerente":
-        tela_gerente(user)
-
-    elif user["role"] == "diretor":
-        tela_diretor()
-
+# ------------------ START ------------------
 main()
