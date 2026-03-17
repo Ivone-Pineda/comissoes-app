@@ -1,253 +1,215 @@
-import sqlite3
-import hashlib
-import pandas as pd
 import streamlit as st
+import pandas as pd
+import sqlite3
 
-DB_PATH = "/tmp/comissoes.db"
-
+# ---------------- CONFIG ----------------
 st.set_page_config(page_title="Comissões", layout="wide")
 
-# ======================
-# CONEXÃO DB
-# ======================
-def get_conn():
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    return conn
+# ---------------- ESTILO PREMIUM ----------------
+st.markdown("""
+<style>
+body {
+    background-color: #F5F7FA;
+}
+h1, h2, h3 {
+    color: #0A3D62;
+}
+.stButton>button {
+    background-color: #0A3D62;
+    color: white;
+    border-radius: 10px;
+    height: 3em;
+    width: 100%;
+}
+.stTextInput>div>div>input {
+    border-radius: 8px;
+}
+</style>
+""", unsafe_allow_html=True)
 
-conn = get_conn()
+# ---------------- BANCO ----------------
+conn = sqlite3.connect("comissoes.db", check_same_thread=False)
+c = conn.cursor()
 
-def hash_password(password):
-    return hashlib.sha256(password.encode()).hexdigest()
+c.execute("""
+CREATE TABLE IF NOT EXISTS users (
+    username TEXT,
+    password TEXT,
+    role TEXT,
+    centro_custo TEXT
+)
+""")
 
-# ======================
-# CRIAÇÃO DO BANCO
-# ======================
-def init_db():
-    c = conn.cursor()
+c.execute("""
+CREATE TABLE IF NOT EXISTS requests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    empresa TEXT,
+    estabelecimento TEXT,
+    localidade TEXT,
+    matricula TEXT,
+    nome TEXT,
+    admissao TEXT,
+    cargo TEXT,
+    centro_custo TEXT,
+    valor_comissao REAL,
+    perc_dsr REAL,
+    valor_total REAL,
+    status TEXT
+)
+""")
 
-    c.execute("""
-    CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT,
-        username TEXT UNIQUE,
-        password TEXT,
-        role TEXT,
-        centro_custo TEXT
-    )
-    """)
+conn.commit()
 
-    c.execute("""
-    CREATE TABLE IF NOT EXISTS requests (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        empresa TEXT,
-        estabelecimento TEXT,
-        localidade TEXT,
-        matricula TEXT,
-        nome TEXT,
-        admissao TEXT,
-        cargo TEXT,
-        centro_custo TEXT,
-        valor_comissao REAL,
-        perc_dsr REAL,
-        valor_total REAL,
-        status TEXT
-    )
-    """)
-
-    # usuário RH padrão
-    if not c.execute("SELECT * FROM users WHERE username='admin'").fetchone():
-        c.execute("""
-        INSERT INTO users VALUES (NULL, ?, ?, ?, ?, ?)
-        """, ("Admin", "admin", hash_password("admin123"), "rh", ""))
-
+# ---------------- USUÁRIOS INICIAIS ----------------
+def seed_users():
+    users = [
+        ("admin","admin123","rh",""),
+        ("gerente_barueri","123","gerente","GERENTE DE BASE - (Barueri)"),
+        ("gerente_maua","123","gerente","GERENTE DE BASE - (Maua)"),
+        ("diretor1","123","diretor","")
+    ]
+    for u in users:
+        c.execute("SELECT * FROM users WHERE username=?", (u[0],))
+        if not c.fetchone():
+            c.execute("INSERT INTO users VALUES (?,?,?,?)", u)
     conn.commit()
 
-init_db()
+seed_users()
 
-# ======================
-# LOGIN
-# ======================
-if "user" not in st.session_state:
-    st.session_state.user = None
-
+# ---------------- LOGIN ----------------
 def login():
-    st.title("Login")
+    st.image("logo.png", width=180)
+    st.markdown("<h1 style='text-align:center'>Plataforma de Comissões</h1>", unsafe_allow_html=True)
 
     user = st.text_input("Usuário")
     pwd = st.text_input("Senha", type="password")
 
     if st.button("Entrar"):
-        row = conn.execute("SELECT * FROM users WHERE username=?", (user,)).fetchone()
-        if row and row["password"] == hash_password(pwd):
-            st.session_state.user = dict(row)
+        c.execute("SELECT * FROM users WHERE username=? AND password=?", (user,pwd))
+        result = c.fetchone()
+        if result:
+            st.session_state.user = {
+                "username": result[0],
+                "role": result[2],
+                "centro": result[3]
+            }
             st.rerun()
         else:
             st.error("Login inválido")
 
-# ======================
-# RH - USUÁRIOS
-# ======================
-def tela_usuarios():
-    st.subheader("Cadastro de Usuários")
-
-    nome = st.text_input("Nome")
-    username = st.text_input("Login")
-    senha = st.text_input("Senha", type="password")
-
-    perfil = st.selectbox("Perfil", ["gerente", "diretor"])
-
-    centro_custo = st.text_input("Centro de Custo")
-
-    if st.button("Cadastrar"):
-        try:
-            conn.execute("""
-                INSERT INTO users (name, username, password, role, centro_custo)
-                VALUES (?, ?, ?, ?, ?)
-            """, (nome, username, hash_password(senha), perfil, centro_custo))
-            conn.commit()
-            st.success("Usuário criado")
-        except:
-            st.error("Erro: usuário já existe")
-
-# ======================
-# RH - UPLOAD
-# ======================
+# ---------------- UPLOAD RH ----------------
 def upload_planilha():
-    st.subheader("Upload de Planilha")
-
-    file = st.file_uploader("Envie Excel", type=["xlsx"])
-
+    file = st.file_uploader("📤 Subir planilha RH", type=["xlsx","csv"])
     if file:
         df = pd.read_excel(file)
-        st.dataframe(df)
 
-        if st.button("Salvar dados"):
-            for _, row in df.iterrows():
-                conn.execute("""
-                    INSERT INTO requests VALUES (NULL,?,?,?,?,?,?,?,?,?,?,?,?)
-                """, (
-                    row["Empresa"],
-                    row["Estab."],
-                    row["Localidade"],
-                    row["Matrícula"],
-                    row["Nome"],
-                    row["Admissão"],
-                    row["Cargo Básico-Descrição"],
-                    row["Centro Custo-Descrição"],
-                    0, 0, 0,
-                    "Pendente Gerente"
-                ))
-            conn.commit()
-            st.success("Upload realizado!")
+        for _, row in df.iterrows():
+            c.execute("""
+            INSERT INTO requests (
+                empresa, estabelecimento, localidade,
+                matricula, nome, admissao, cargo,
+                centro_custo, valor_comissao, perc_dsr,
+                valor_total, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                row["Empresa"],
+                row["Estab."],
+                row["Localidade"],
+                row["Matrícula"],
+                row["Nome"],
+                row["Admissão"],
+                row["Cargo Básico-Descrição"],
+                row["Centro Custo-Descrição"],
+                0, 0, 0,
+                "Pendente Gerente"
+            ))
+        conn.commit()
+        st.success("Planilha carregada com sucesso!")
 
-# ======================
-# GERENTE
-# ======================
-def tela_gerente(user):
-    st.subheader("Comissões")
-
-    df = pd.read_sql("""
-        SELECT * FROM requests
-        WHERE centro_custo = ?
-        AND status = 'Pendente Gerente'
-    """, conn, params=(user["centro_custo"],))
-
-    for _, r in df.iterrows():
-        st.write(f"{r['nome']} - {r['matricula']}")
-
-        valor = st.number_input(f"Valor {r['id']}", key=f"v{r['id']}")
-        dsr = st.number_input(f"% DSR {r['id']}", key=f"d{r['id']}")
-
-        total = valor + (valor * dsr / 100)
-
-        st.write(f"Total: R$ {total:.2f}")
-
-        if st.button(f"Enviar {r['id']}"):
-            conn.execute("""
-                UPDATE requests
-                SET valor_comissao=?, perc_dsr=?, valor_total=?, status='Pendente Diretor'
-                WHERE id=?
-            """, (valor, dsr, total, r["id"]))
-            conn.commit()
-            st.rerun()
-
-        st.divider()
-
-# ======================
-# DIRETOR
-# ======================
-def tela_diretor():
-    st.subheader("Aprovação")
-
-    df = pd.read_sql("""
-        SELECT * FROM requests
-        WHERE status='Pendente Diretor'
-    """, conn)
-
-    for _, r in df.iterrows():
-        st.write(r["nome"], r["valor_total"])
-
-        if st.button(f"Aprovar {r['id']}"):
-            conn.execute("UPDATE requests SET status='Aprovado' WHERE id=?", (r["id"],))
-            conn.commit()
-            st.rerun()
-
-# ======================
-# EXPORTAÇÃO
-# ======================
-def exportar_totvs():
-    st.subheader("Exportar TOTVS")
-
-    df = pd.read_sql("""
-        SELECT empresa, estabelecimento, matricula, valor_total
-        FROM requests
-        WHERE status='Aprovado'
-    """, conn)
-
-    csv = df.to_csv(index=False, sep=";").encode("utf-8")
-
-    st.download_button(
-        "Baixar CSV",
-        data=csv,
-        file_name="totvs.csv",
-        mime="text/csv"
-    )
-
-# ======================
-# RH PRINCIPAL
-# ======================
+# ---------------- TELA RH ----------------
 def tela_rh():
-    aba = st.radio("Menu", ["Upload", "Usuários", "Exportar"])
+    st.title("👩‍💼 RH")
 
-    if aba == "Upload":
-        upload_planilha()
-    elif aba == "Usuários":
-        tela_usuarios()
-    elif aba == "Exportar":
-        exportar_totvs()
+    upload_planilha()
 
-# ======================
-# MAIN
-# ======================
+    df = pd.read_sql("SELECT * FROM requests", conn)
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Total", len(df))
+    col2.metric("Pendentes", len(df[df['status']=="Pendente Gerente"]))
+    col3.metric("Aprovados", len(df[df['status']=="Aprovado Diretor"]))
+
+# ---------------- TELA GERENTE ----------------
+def tela_gerente(user):
+    st.title("👨‍💼 Gerente")
+
+    df = pd.read_sql("SELECT * FROM requests WHERE centro_custo=?", conn, params=(user["centro"],))
+
+    for i, r in df.iterrows():
+        with st.container():
+            st.markdown(f"### {r['nome']}")
+            st.write(f"Matrícula: {r['matricula']}")
+
+            valor = st.number_input(f"Valor Comissão {i}", value=float(r['valor_comissao']))
+            dsr = st.number_input(f"% DSR {i}", value=float(r['perc_dsr']))
+
+            total = valor + (valor * dsr/100)
+
+            if st.button(f"Salvar {i}"):
+                c.execute("""
+                UPDATE requests SET
+                valor_comissao=?,
+                perc_dsr=?,
+                valor_total=?,
+                status='Pendente Diretor'
+                WHERE id=?
+                """, (valor, dsr, total, r['id']))
+                conn.commit()
+                st.success("Atualizado!")
+
+            st.divider()
+
+# ---------------- TELA DIRETOR ----------------
+def tela_diretor():
+    st.title("👔 Diretor")
+
+    df = pd.read_sql("SELECT * FROM requests WHERE status='Pendente Diretor'", conn)
+
+    for i, r in df.iterrows():
+        st.write(f"{r['nome']} - R$ {r['valor_total']}")
+
+        if st.button(f"Aprovar {i}"):
+            c.execute("UPDATE requests SET status='Aprovado Diretor' WHERE id=?", (r['id'],))
+            conn.commit()
+            st.success("Aprovado")
+
+# ---------------- EXPORTAÇÃO ----------------
+def exportar():
+    st.title("📥 Exportar TOTVS")
+
+    df = pd.read_sql("SELECT empresa, estabelecimento, matricula, valor_total FROM requests WHERE status='Aprovado Diretor'", conn)
+
+    st.download_button("Download CSV", df.to_csv(index=False), "totvs.csv")
+
+# ---------------- MAIN ----------------
 def main():
-    if not st.session_state.user:
+    if "user" not in st.session_state:
         login()
         return
 
     user = st.session_state.user
 
-    st.sidebar.write(user["name"])
-    st.sidebar.write(user["role"])
-
-    if st.sidebar.button("Sair"):
-        st.session_state.user = None
-        st.rerun()
+    st.sidebar.image("logo.png", width=150)
+    st.sidebar.write(f"👤 {user['username']}")
+    st.sidebar.write(f"🔐 {user['role']}")
 
     if user["role"] == "rh":
         tela_rh()
+        exportar()
+
     elif user["role"] == "gerente":
         tela_gerente(user)
+
     elif user["role"] == "diretor":
         tela_diretor()
 
