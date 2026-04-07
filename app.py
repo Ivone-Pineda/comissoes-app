@@ -334,15 +334,20 @@ def tela_rh():
                 if st.button("📥 Importar"):
                     now = datetime.now().strftime("%d/%m/%Y %H:%M")
                     for _, row in df.iterrows():
+                        admissao = row.get("Admissão","")
+                        if hasattr(admissao, "strftime"):
+                            admissao = admissao.strftime("%d/%m/%Y")
+                        else:
+                            admissao = str(admissao) if pd.notna(admissao) else ""
                         c.execute("""INSERT INTO requests
                             (empresa,estabelecimento,localidade,matricula,nome,
                              admissao,cargo,centro_custo,status,atualizado_em)
                             VALUES (?,?,?,?,?,?,?,?,?,?)""",
-                            (row.get("Empresa",""),row.get("Estab.",""),
-                             row.get("Localidade",""),row.get("Matrícula",""),
-                             row.get("Nome",""),row.get("Admissão",""),
-                             row.get("Cargo Básico-Descrição",""),
-                             row.get("Centro Custo-Descrição",""),
+                            (str(row.get("Empresa","")),str(row.get("Estab.","")),
+                             str(row.get("Localidade","")),str(row.get("Matrícula","")),
+                             str(row.get("Nome","")),admissao,
+                             str(row.get("Cargo Básico-Descrição","")),
+                             str(row.get("Centro Custo-Descrição","")),
                              "Pendente Gerente",now))
                     conn.commit()
                     st.success(f"✅ {len(df)} registros importados!")
