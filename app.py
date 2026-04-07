@@ -18,20 +18,15 @@ st.set_page_config(
 # ───────────────────────────────────────────────
 st.markdown("""
 <style>
-/* Importa fonte */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-
 html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
 
-/* Sidebar */
 section[data-testid="stSidebar"] {
     background: linear-gradient(180deg, #0A3D62 0%, #1a5276 100%);
-    color: white;
 }
 section[data-testid="stSidebar"] * { color: white !important; }
 section[data-testid="stSidebar"] hr { border-color: rgba(255,255,255,0.2); }
 
-/* Botões primários */
 div.stButton > button {
     background: linear-gradient(135deg, #0A3D62, #1a6fa8);
     color: white !important;
@@ -44,7 +39,11 @@ div.stButton > button {
 }
 div.stButton > button:hover { opacity: 0.88; }
 
-/* Cards de métricas */
+/* Botão vermelho para remover */
+.btn-danger > button {
+    background: linear-gradient(135deg, #c0392b, #e74c3c) !important;
+}
+
 div[data-testid="metric-container"] {
     background: #f0f4f8;
     border-left: 4px solid #0A3D62;
@@ -52,16 +51,6 @@ div[data-testid="metric-container"] {
     padding: 18px 22px;
 }
 
-/* Tabela */
-div[data-testid="stDataFrame"] { border-radius: 10px; overflow: hidden; }
-
-/* Inputs */
-div[data-testid="stTextInput"] input,
-div[data-testid="stNumberInput"] input {
-    border-radius: 6px;
-}
-
-/* Títulos de seção */
 .section-title {
     font-size: 1.3rem;
     font-weight: 700;
@@ -71,19 +60,26 @@ div[data-testid="stNumberInput"] input {
     padding-bottom: 6px;
 }
 
-/* Badge de status */
-.badge {
-    display: inline-block;
-    padding: 3px 10px;
-    border-radius: 20px;
-    font-size: 0.78rem;
-    font-weight: 600;
+/* Login card por perfil */
+.perfil-card {
+    border: 2px solid transparent;
+    border-radius: 12px;
+    padding: 18px;
+    text-align: center;
+    cursor: pointer;
+    transition: all .2s;
+    background: white;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
 }
+.perfil-rh      { border-color: #1a6fa8; }
+.perfil-gerente { border-color: #27ae60; }
+.perfil-diretor { border-color: #8e44ad; }
+
+.badge { display:inline-block; padding:3px 10px; border-radius:20px; font-size:.78rem; font-weight:600; }
 .badge-pendente  { background:#fff3cd; color:#856404; }
 .badge-rh        { background:#cfe2ff; color:#084298; }
 .badge-concluido { background:#d1e7dd; color:#0a3622; }
 
-/* Card funcionário */
 .func-card {
     background: white;
     border: 1px solid #dee2e6;
@@ -100,20 +96,19 @@ div[data-testid="stNumberInput"] input {
 # ───────────────────────────────────────────────
 @st.cache_resource
 def get_conn():
-    conn = sqlite3.connect("data.db", check_same_thread=False)
-    return conn
+    return sqlite3.connect("data.db", check_same_thread=False)
 
 conn = get_conn()
 c    = conn.cursor()
 
 c.executescript("""
 CREATE TABLE IF NOT EXISTS users (
-    username    TEXT PRIMARY KEY,
-    password    TEXT NOT NULL,
-    role        TEXT NOT NULL,
-    centro_custo TEXT DEFAULT '',
+    username      TEXT PRIMARY KEY,
+    password      TEXT NOT NULL,
+    role          TEXT NOT NULL,
+    centro_custo  TEXT DEFAULT '',
     nome_completo TEXT DEFAULT '',
-    criado_em   TEXT DEFAULT ''
+    criado_em     TEXT DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS requests (
@@ -135,12 +130,17 @@ CREATE TABLE IF NOT EXISTS requests (
 """)
 conn.commit()
 
-# Admin padrão
-c.execute("SELECT 1 FROM users WHERE username='admin'")
-if not c.fetchone():
-    c.execute("INSERT INTO users VALUES ('admin','admin123','rh','','Administrador',?)",
-              (datetime.now().strftime("%d/%m/%Y %H:%M"),))
-    conn.commit()
+# Usuários padrão
+defaults = [
+    ("admin",   "admin123",   "rh",      "", "Administrador RH",   ),
+    ("diretor", "diretor123", "diretor", "", "Diretor Geral",       ),
+]
+for u, p, r, cc, nm in defaults:
+    c.execute("SELECT 1 FROM users WHERE username=?", (u,))
+    if not c.fetchone():
+        c.execute("INSERT INTO users VALUES (?,?,?,?,?,?)",
+                  (u, p, r, cc, nm, datetime.now().strftime("%d/%m/%Y %H:%M")))
+conn.commit()
 
 # ───────────────────────────────────────────────
 #  CENTROS DE CUSTO
@@ -152,20 +152,18 @@ CENTROS = [
     "POS VENDAS - (Barueri)",
 ]
 
+ROLE_LABELS = {
+    "rh":      ("👩‍💼", "RH",      "#1a6fa8"),
+    "gerente": ("👨‍💼", "Gerente", "#27ae60"),
+    "diretor": ("🏢",  "Diretor", "#8e44ad"),
+}
+
 # ───────────────────────────────────────────────
 #  HELPERS
 # ───────────────────────────────────────────────
-def badge_status(status):
-    cls = {
-        "Pendente Gerente": "badge-pendente",
-        "Pendente RH":      "badge-rh",
-        "Concluído":        "badge-concluido",
-    }.get(status, "badge-pendente")
-    return f'<span class="badge {cls}">{status}</span>'
-
 def fmt_brl(v):
     try:
-        return f"R$ {float(v):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        return f"R$ {float(v):,.2f}".replace(",","X").replace(".",",").replace("X",".")
     except:
         return "R$ 0,00"
 
@@ -174,14 +172,15 @@ def fmt_brl(v):
 # ───────────────────────────────────────────────
 def render_sidebar():
     user = st.session_state.user
+    icon, label, color = ROLE_LABELS.get(user["role"], ("👤","","#333"))
     with st.sidebar:
         try:
             st.image("logo.png", width=160)
         except:
             st.markdown("## 💼 Consigaz")
         st.markdown("---")
-        st.markdown(f"**👤 {user.get('nome_completo') or user['username']}**")
-        st.caption(f"Perfil: `{user['role'].upper()}`")
+        st.markdown(f"**{icon} {user.get('nome_completo') or user['username']}**")
+        st.caption(f"Perfil: `{label}`")
         if user.get("centro_custo"):
             st.caption(f"📍 {user['centro_custo']}")
         st.markdown("---")
@@ -190,194 +189,186 @@ def render_sidebar():
             st.rerun()
 
 # ───────────────────────────────────────────────
-#  LOGIN
+#  LOGIN  (seleção de perfil + credenciais)
 # ───────────────────────────────────────────────
 def login():
-    col_l, col_c, col_r = st.columns([1, 1.4, 1])
+    col_l, col_c, col_r = st.columns([1, 1.6, 1])
     with col_c:
         try:
             st.image("logo.png", width=180)
         except:
             st.markdown("## 💼 Consigaz")
 
-        st.markdown("### 🔐 Acesso ao Sistema")
-        st.markdown("---")
-
-        user = st.text_input("Usuário", placeholder="Digite seu usuário")
-        pwd  = st.text_input("Senha", type="password", placeholder="Digite sua senha")
+        st.markdown("### Bem-vindo ao Sistema de Comissões")
+        st.markdown("Selecione seu perfil de acesso:")
         st.markdown("<br>", unsafe_allow_html=True)
 
-        if st.button("Entrar", use_container_width=True):
-            c.execute("SELECT * FROM users WHERE username=? AND password=?", (user, pwd))
+        # Seleção visual de perfil
+        p1, p2, p3 = st.columns(3)
+        perfis = ["rh", "gerente", "diretor"]
+        icons  = ["👩‍💼", "👨‍💼", "🏢"]
+        nomes  = ["RH", "Gerente", "Diretor"]
+        cores  = ["#1a6fa8", "#27ae60", "#8e44ad"]
+
+        if "perfil_sel" not in st.session_state:
+            st.session_state.perfil_sel = "rh"
+
+        for col, p, ic, nm, cor in zip([p1,p2,p3], perfis, icons, nomes, cores):
+            selecionado = st.session_state.perfil_sel == p
+            borda = f"3px solid {cor}" if selecionado else "2px solid #dee2e6"
+            bg    = f"rgba({','.join(str(int(cor[i:i+2],16)) for i in (1,3,5))},0.08)" if selecionado else "white"
+            col.markdown(f"""
+            <div style="border:{borda};border-radius:12px;padding:16px;
+                        text-align:center;background:{bg};cursor:pointer;">
+                <div style="font-size:2rem">{ic}</div>
+                <div style="font-weight:600;color:{cor}">{nm}</div>
+            </div>
+            """, unsafe_allow_html=True)
+            if col.button(f"Selecionar {nm}", key=f"sel_{p}"):
+                st.session_state.perfil_sel = p
+                st.rerun()
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        perfil_atual = st.session_state.perfil_sel
+        ic_a, nm_a, cor_a = icons[perfis.index(perfil_atual)], nomes[perfis.index(perfil_atual)], cores[perfis.index(perfil_atual)]
+        st.markdown(f"#### {ic_a} Entrar como **{nm_a}**")
+
+        usuario = st.text_input("Usuário", placeholder="Digite seu usuário")
+        senha   = st.text_input("Senha", type="password", placeholder="Digite sua senha")
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        if st.button("🔐 Entrar", use_container_width=True):
+            c.execute(
+                "SELECT * FROM users WHERE username=? AND password=? AND role=?",
+                (usuario, senha, perfil_atual)
+            )
             r = c.fetchone()
             if r:
                 st.session_state.user = {
-                    "username":     r[0],
-                    "role":         r[2],
-                    "centro_custo": r[3],
+                    "username":      r[0],
+                    "role":          r[2],
+                    "centro_custo":  r[3],
                     "nome_completo": r[4],
                 }
                 st.rerun()
             else:
-                st.error("❌ Usuário ou senha inválidos.")
+                st.error(f"❌ Credenciais inválidas para o perfil **{nm_a}**.")
 
 # ───────────────────────────────────────────────
-#  DASHBOARD
+#  DASHBOARD (compartilhado)
 # ───────────────────────────────────────────────
 def dashboard(df=None):
     if df is None:
         df = pd.read_sql("SELECT * FROM requests", conn)
-
     st.markdown('<p class="section-title">📊 Dashboard</p>', unsafe_allow_html=True)
-
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("📋 Total de Registros",  len(df))
-    c2.metric("⏳ Pendente Gerente",    len(df[df["status"] == "Pendente Gerente"]))
-    c3.metric("🔵 Pendente RH",         len(df[df["status"] == "Pendente RH"]))
-    c4.metric("✅ Concluídos",          len(df[df["status"] == "Concluído"]))
-
-    st.markdown("<br>", unsafe_allow_html=True)
+    c1,c2,c3,c4 = st.columns(4)
+    c1.metric("📋 Total",           len(df))
+    c2.metric("⏳ Pend. Gerente",   len(df[df["status"]=="Pendente Gerente"]))
+    c3.metric("🔵 Pend. RH",        len(df[df["status"]=="Pendente RH"]))
+    c4.metric("✅ Concluídos",      len(df[df["status"]=="Concluído"]))
     if not df.empty:
-        total_comissoes = df["valor_total"].sum()
-        st.info(f"💰 **Total de comissões na base:** {fmt_brl(total_comissoes)}")
+        st.info(f"💰 **Total de comissões na base:** {fmt_brl(df['valor_total'].sum())}")
 
 # ───────────────────────────────────────────────
-#  TELA RH / ADMIN
+#  TELA RH
 # ───────────────────────────────────────────────
 def tela_rh():
     st.title("👩‍💼 Painel RH — Consigaz")
-
-    menu = st.radio(
-        "Navegação",
-        ["📊 Dashboard", "👤 Usuários", "📤 Upload", "🗃️ Base de Dados"],
-        horizontal=True,
-    )
+    menu = st.radio("", ["📊 Dashboard","👤 Usuários","📤 Upload","🗃️ Base de Dados"], horizontal=True)
     st.markdown("---")
 
-    # ── DASHBOARD ──────────────────────────────
     if menu == "📊 Dashboard":
         dashboard()
 
-    # ── USUÁRIOS ───────────────────────────────
     elif menu == "👤 Usuários":
-        tab1, tab2 = st.tabs(["➕ Criar Usuário", "📋 Listar Usuários"])
+        tab1, tab2 = st.tabs(["➕ Criar Usuário","📋 Listar Usuários"])
 
-        # Criar
         with tab1:
-            st.markdown('<p class="section-title">Novo Gerente</p>', unsafe_allow_html=True)
+            st.markdown('<p class="section-title">Novo Usuário</p>', unsafe_allow_html=True)
             col1, col2 = st.columns(2)
-            with col1:
-                nome_completo = st.text_input("Nome Completo", placeholder="Ex.: João Silva")
-                usuario       = st.text_input("Usuário (login)", placeholder="Ex.: joao.silva")
-            with col2:
-                senha         = st.text_input("Senha", type="password", placeholder="Mínimo 6 caracteres")
-                centro_custo  = st.selectbox("Centro de Custo", CENTROS)
+            nome_completo = col1.text_input("Nome Completo")
+            usuario       = col2.text_input("Usuário (login)")
+            senha         = col1.text_input("Senha", type="password")
+            perfil        = col2.selectbox("Perfil", ["gerente","rh","diretor"],
+                                           format_func=lambda x: {"gerente":"👨‍💼 Gerente","rh":"👩‍💼 RH","diretor":"🏢 Diretor"}[x])
+            centro_custo  = st.selectbox("Centro de Custo", [""] + CENTROS)
 
-            st.markdown("<br>", unsafe_allow_html=True)
             if st.button("✅ Criar Usuário"):
-                if not usuario or not senha or not nome_completo:
+                if not all([nome_completo, usuario, senha]):
                     st.warning("⚠️ Preencha todos os campos.")
                 elif len(senha) < 6:
-                    st.warning("⚠️ A senha deve ter ao menos 6 caracteres.")
+                    st.warning("⚠️ Senha deve ter ao menos 6 caracteres.")
                 else:
                     try:
-                        c.execute(
-                            "INSERT INTO users VALUES (?,?,?,?,?,?)",
-                            (usuario, senha, "gerente", centro_custo,
-                             nome_completo, datetime.now().strftime("%d/%m/%Y %H:%M"))
-                        )
+                        c.execute("INSERT INTO users VALUES (?,?,?,?,?,?)",
+                                  (usuario, senha, perfil, centro_custo, nome_completo,
+                                   datetime.now().strftime("%d/%m/%Y %H:%M")))
                         conn.commit()
-                        st.success(f"✅ Usuário **{usuario}** criado com sucesso!")
+                        st.success(f"✅ Usuário **{usuario}** ({perfil}) criado!")
                     except sqlite3.IntegrityError:
-                        st.error("❌ Esse nome de usuário já existe.")
+                        st.error("❌ Usuário já existe.")
 
-        # Listar
         with tab2:
-            st.markdown('<p class="section-title">Gerentes Cadastrados</p>', unsafe_allow_html=True)
             df_u = pd.read_sql(
-                "SELECT nome_completo AS Nome, username AS Usuário, centro_custo AS [Centro de Custo], criado_em AS [Criado em] FROM users WHERE role='gerente'",
-                conn
-            )
+                "SELECT nome_completo AS Nome, username AS Usuário, role AS Perfil, "
+                "centro_custo AS [Centro de Custo], criado_em AS [Criado em] "
+                "FROM users WHERE username != 'admin'", conn)
             if df_u.empty:
-                st.info("Nenhum gerente cadastrado ainda.")
+                st.info("Nenhum usuário cadastrado.")
             else:
                 st.dataframe(df_u, use_container_width=True, hide_index=True)
-
                 st.markdown("---")
-                st.markdown("**🗑️ Remover Usuário**")
-                col_u, col_b = st.columns([3, 1])
-                users_list = df_u["Usuário"].tolist()
-                sel = col_u.selectbox("Selecione o usuário", users_list, label_visibility="collapsed")
-                if col_b.button("Remover"):
-                    c.execute("DELETE FROM users WHERE username=?", (sel,))
-                    conn.commit()
-                    st.success(f"Usuário **{sel}** removido.")
-                    st.rerun()
+                col_u, col_b = st.columns([3,1])
+                sel = col_u.selectbox("Remover usuário", df_u["Usuário"].tolist(), label_visibility="collapsed")
+                with col_b:
+                    st.markdown('<div class="btn-danger">', unsafe_allow_html=True)
+                    if st.button("🗑️ Remover"):
+                        c.execute("DELETE FROM users WHERE username=?", (sel,))
+                        conn.commit()
+                        st.success(f"Usuário **{sel}** removido.")
+                        st.rerun()
+                    st.markdown('</div>', unsafe_allow_html=True)
 
-    # ── UPLOAD ─────────────────────────────────
     elif menu == "📤 Upload":
         st.markdown('<p class="section-title">Upload de Planilha</p>', unsafe_allow_html=True)
-        st.markdown("Envie um arquivo `.xlsx` com as colunas: **Empresa, Estab., Localidade, Matrícula, Nome, Admissão, Cargo Básico-Descrição, Centro Custo-Descrição**")
-
         file = st.file_uploader("Selecionar arquivo Excel", type=["xlsx"])
         if file:
             try:
                 df = pd.read_excel(file)
                 st.dataframe(df.head(5), use_container_width=True)
-                st.caption(f"Prévia — {len(df)} linhas encontradas")
-
-                if st.button("📥 Importar para o sistema"):
+                st.caption(f"Prévia — {len(df)} linhas")
+                if st.button("📥 Importar"):
                     now = datetime.now().strftime("%d/%m/%Y %H:%M")
                     for _, row in df.iterrows():
-                        c.execute("""
-                        INSERT INTO requests
-                            (empresa, estabelecimento, localidade, matricula, nome,
-                             admissao, cargo, centro_custo, status, atualizado_em)
-                        VALUES (?,?,?,?,?,?,?,?,?,?)
-                        """, (
-                            row.get("Empresa",""),
-                            row.get("Estab.",""),
-                            row.get("Localidade",""),
-                            row.get("Matrícula",""),
-                            row.get("Nome",""),
-                            row.get("Admissão",""),
-                            row.get("Cargo Básico-Descrição",""),
-                            row.get("Centro Custo-Descrição",""),
-                            "Pendente Gerente",
-                            now,
-                        ))
+                        c.execute("""INSERT INTO requests
+                            (empresa,estabelecimento,localidade,matricula,nome,
+                             admissao,cargo,centro_custo,status,atualizado_em)
+                            VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                            (row.get("Empresa",""), row.get("Estab.",""),
+                             row.get("Localidade",""), row.get("Matrícula",""),
+                             row.get("Nome",""), row.get("Admissão",""),
+                             row.get("Cargo Básico-Descrição",""),
+                             row.get("Centro Custo-Descrição",""),
+                             "Pendente Gerente", now))
                     conn.commit()
-                    st.success(f"✅ {len(df)} registros importados com sucesso!")
+                    st.success(f"✅ {len(df)} registros importados!")
             except Exception as e:
-                st.error(f"Erro ao processar arquivo: {e}")
+                st.error(f"Erro: {e}")
 
-    # ── BASE ───────────────────────────────────
     elif menu == "🗃️ Base de Dados":
-        st.markdown('<p class="section-title">Base de Dados Completa</p>', unsafe_allow_html=True)
         df = pd.read_sql("SELECT * FROM requests", conn)
-
-        # Filtros
-        col_f1, col_f2, col_f3 = st.columns(3)
-        status_opts = ["Todos"] + df["status"].dropna().unique().tolist()
-        centro_opts = ["Todos"] + df["centro_custo"].dropna().unique().tolist()
-
-        f_status = col_f1.selectbox("Filtrar por Status", status_opts)
-        f_centro = col_f2.selectbox("Filtrar por Centro", centro_opts)
-        f_nome   = col_f3.text_input("Buscar por Nome", placeholder="Digite parte do nome...")
-
-        if f_status != "Todos":
-            df = df[df["status"] == f_status]
-        if f_centro != "Todos":
-            df = df[df["centro_custo"] == f_centro]
-        if f_nome:
-            df = df[df["nome"].str.contains(f_nome, case=False, na=False)]
-
-        st.markdown(f"**{len(df)} registros encontrados**")
+        col1,col2,col3 = st.columns(3)
+        f_status = col1.selectbox("Status", ["Todos"]+df["status"].dropna().unique().tolist())
+        f_centro = col2.selectbox("Centro", ["Todos"]+df["centro_custo"].dropna().unique().tolist())
+        f_nome   = col3.text_input("Nome", placeholder="Buscar...")
+        if f_status != "Todos": df = df[df["status"]==f_status]
+        if f_centro != "Todos": df = df[df["centro_custo"]==f_centro]
+        if f_nome: df = df[df["nome"].str.contains(f_nome,case=False,na=False)]
         st.dataframe(df, use_container_width=True, hide_index=True)
-
-        # Export
-        csv = df.to_csv(index=False).encode("utf-8-sig")
-        st.download_button("⬇️ Exportar CSV", csv, "comissoes.csv", "text/csv")
+        st.download_button("⬇️ Exportar CSV",
+                           df.to_csv(index=False).encode("utf-8-sig"),
+                           "comissoes.csv","text/csv")
 
 # ───────────────────────────────────────────────
 #  TELA GERENTE
@@ -385,72 +376,97 @@ def tela_rh():
 def tela_gerente():
     user = st.session_state.user
     st.title(f"👨‍💼 Gerente — {user['centro_custo']}")
+    tab1, tab2 = st.tabs(["📝 Lançar Comissões","📊 Meu Resumo"])
 
-    tab1, tab2 = st.tabs(["📝 Lançar Comissões", "📊 Meu Resumo"])
+    df = pd.read_sql("SELECT * FROM requests WHERE centro_custo=?", conn,
+                     params=(user["centro_custo"],))
 
-    df = pd.read_sql(
-        "SELECT * FROM requests WHERE centro_custo=?",
-        conn,
-        params=(user["centro_custo"],)
-    )
-
-    # ── Lançar ─────────────────────────────────
     with tab1:
-        pendentes = df[df["status"] == "Pendente Gerente"]
+        pendentes = df[df["status"]=="Pendente Gerente"]
         if pendentes.empty:
             st.success("🎉 Todos os registros já foram preenchidos!")
         else:
             st.markdown(f"**{len(pendentes)} funcionário(s) aguardando lançamento**")
-            st.markdown("---")
-            for i, row in pendentes.iterrows():
-                with st.container():
-                    st.markdown(f"""
-                    <div class="func-card">
-                        <strong>{row['nome']}</strong> &nbsp;|&nbsp;
-                        Matrícula: <code>{row['matricula']}</code> &nbsp;|&nbsp;
-                        Cargo: {row['cargo']}
-                    </div>
-                    """, unsafe_allow_html=True)
+            for _, row in pendentes.iterrows():
+                st.markdown(f"""<div class="func-card">
+                    <strong>{row['nome']}</strong> &nbsp;|&nbsp;
+                    Matrícula: <code>{row['matricula']}</code> &nbsp;|&nbsp;
+                    Cargo: {row['cargo']}
+                </div>""", unsafe_allow_html=True)
+                col1,col2,col3 = st.columns([2,2,1])
+                valor = col1.number_input("💰 Comissão (R$)", min_value=0.0, format="%.2f", key=f"v_{row['id']}")
+                dsr   = col2.number_input("📊 % DSR", min_value=0.0, max_value=100.0, format="%.2f", key=f"d_{row['id']}")
+                total = valor + (valor * dsr / 100)
+                col3.metric("Total", fmt_brl(total))
+                if st.button("💾 Salvar", key=f"s_{row['id']}"):
+                    c.execute("""UPDATE requests SET valor_comissao=?,perc_dsr=?,
+                        valor_total=?,status='Pendente RH',atualizado_em=? WHERE id=?""",
+                        (valor,dsr,total,datetime.now().strftime("%d/%m/%Y %H:%M"),row["id"]))
+                    conn.commit()
+                    st.success(f"✅ {row['nome']} salvo!")
+                    st.rerun()
 
-                    col1, col2, col3 = st.columns([2, 2, 1])
-                    valor = col1.number_input(
-                        "💰 Valor Comissão (R$)", min_value=0.0,
-                        format="%.2f", key=f"v_{row['id']}"
-                    )
-                    dsr   = col2.number_input(
-                        "📊 % DSR", min_value=0.0, max_value=100.0,
-                        format="%.2f", key=f"d_{row['id']}"
-                    )
-                    total = valor + (valor * dsr / 100)
-                    col3.metric("Total", fmt_brl(total))
-
-                    if st.button("💾 Salvar", key=f"s_{row['id']}"):
-                        c.execute("""
-                            UPDATE requests
-                            SET valor_comissao=?, perc_dsr=?, valor_total=?,
-                                status='Pendente RH', atualizado_em=?
-                            WHERE id=?
-                        """, (valor, dsr, total,
-                              datetime.now().strftime("%d/%m/%Y %H:%M"),
-                              row["id"]))
-                        conn.commit()
-                        st.success(f"✅ Comissão de **{row['nome']}** salva!")
-                        st.rerun()
-
-    # ── Resumo ─────────────────────────────────
     with tab2:
-        st.markdown('<p class="section-title">Resumo do meu Centro</p>', unsafe_allow_html=True)
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Total funcionários", len(df))
-        c2.metric("Pendentes",          len(df[df["status"] == "Pendente Gerente"]))
-        c3.metric("Enviados ao RH",     len(df[df["status"] == "Pendente RH"]))
-
+        c1,c2,c3 = st.columns(3)
+        c1.metric("Total", len(df))
+        c2.metric("Pendentes", len(df[df["status"]=="Pendente Gerente"]))
+        c3.metric("Enviados ao RH", len(df[df["status"]=="Pendente RH"]))
         if not df.empty:
-            st.markdown("---")
-            st.dataframe(
-                df[["nome","cargo","valor_comissao","perc_dsr","valor_total","status"]],
-                use_container_width=True, hide_index=True
-            )
+            st.dataframe(df[["nome","cargo","valor_comissao","perc_dsr","valor_total","status"]],
+                         use_container_width=True, hide_index=True)
+
+# ───────────────────────────────────────────────
+#  TELA DIRETOR  (somente leitura, visão geral)
+# ───────────────────────────────────────────────
+def tela_diretor():
+    st.title("🏢 Painel Diretor — Visão Executiva")
+    menu = st.radio("", ["📊 Visão Geral","📈 Por Centro de Custo","🗃️ Relatório Completo"], horizontal=True)
+    st.markdown("---")
+
+    df = pd.read_sql("SELECT * FROM requests", conn)
+
+    if menu == "📊 Visão Geral":
+        dashboard(df)
+        st.markdown("---")
+        if not df.empty:
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown("**💰 Comissões por Status**")
+                resumo = df.groupby("status")["valor_total"].sum().reset_index()
+                resumo.columns = ["Status","Total (R$)"]
+                resumo["Total (R$)"] = resumo["Total (R$)"].apply(fmt_brl)
+                st.dataframe(resumo, use_container_width=True, hide_index=True)
+            with col2:
+                st.markdown("**📍 Total por Centro de Custo**")
+                por_centro = df.groupby("centro_custo")["valor_total"].sum().reset_index()
+                por_centro.columns = ["Centro","Total (R$)"]
+                por_centro["Total (R$)"] = por_centro["Total (R$)"].apply(fmt_brl)
+                st.dataframe(por_centro, use_container_width=True, hide_index=True)
+
+    elif menu == "📈 Por Centro de Custo":
+        centros = df["centro_custo"].dropna().unique().tolist()
+        if not centros:
+            st.info("Nenhum dado disponível.")
+        else:
+            sel = st.selectbox("Centro de Custo", centros)
+            df_c = df[df["centro_custo"]==sel]
+            c1,c2,c3 = st.columns(3)
+            c1.metric("Funcionários",    len(df_c))
+            c2.metric("Total Comissões", fmt_brl(df_c["valor_total"].sum()))
+            c3.metric("Concluídos",      len(df_c[df_c["status"]=="Concluído"]))
+            st.dataframe(df_c[["nome","cargo","valor_comissao","perc_dsr","valor_total","status"]],
+                         use_container_width=True, hide_index=True)
+
+    elif menu == "🗃️ Relatório Completo":
+        st.markdown('<p class="section-title">Relatório Geral</p>', unsafe_allow_html=True)
+        if df.empty:
+            st.info("Nenhum dado disponível.")
+        else:
+            st.metric("💰 Total Geral de Comissões", fmt_brl(df["valor_total"].sum()))
+            st.dataframe(df, use_container_width=True, hide_index=True)
+            st.download_button("⬇️ Exportar CSV",
+                               df.to_csv(index=False).encode("utf-8-sig"),
+                               "relatorio_comissoes.csv","text/csv")
 
 # ───────────────────────────────────────────────
 #  MAIN
@@ -461,10 +477,15 @@ def main():
         return
 
     render_sidebar()
+    role = st.session_state.user["role"]
 
-    if st.session_state.user["role"] == "rh":
+    if role == "rh":
         tela_rh()
-    else:
+    elif role == "gerente":
         tela_gerente()
+    elif role == "diretor":
+        tela_diretor()
+    else:
+        st.error("Perfil desconhecido.")
 
 main()
